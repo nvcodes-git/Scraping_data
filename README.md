@@ -12,4 +12,6 @@ Also, to run the script you need to run:
 
 python scraper.py
 
+If you find any problems, raise an issue so that I can solve it.
+
 
