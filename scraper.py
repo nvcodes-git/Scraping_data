@@ -3,72 +3,120 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 import pandas as pd
 import time
+import os
 
 URL = "https://admision.unmsm.edu.pe/Website20262/A/A.html"
+OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "output", "resultados_admision.xlsx")
 
 options = webdriver.ChromeOptions()
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
-# options.add_argument("--headless")  # uncomment to run without opening a window
+options.add_argument("--headless")
 
 driver = webdriver.Chrome(
     service=Service("/usr/bin/chromedriver"),
     options=options,
 )
 
-driver.maximize_window()
 driver.get(URL)
 time.sleep(3)
 
 print("Page title:", driver.title)
 print("Browser opened successfully.")
 
-# --- Step 2: Enter the first major and extract passing applicants ---
+# --- Step 2: Collect all major links from the homepage ---
 
-# Get the first major link from the list
-first_major_link = driver.find_element(By.CSS_SELECTOR, "table a")
-first_major_name = first_major_link.text.strip()
-print(f"Entering major: {first_major_name}")
-first_major_link.click()
-time.sleep(3)
+major_links = driver.find_elements(By.CSS_SELECTOR, "table a")
+major_data = [(link.text.strip(), link.get_attribute("href")) for link in major_links]
+print(f"Found {len(major_data)} majors.")
 
-# Debug: find the actual table ID on the page
-table_id = driver.execute_script("""
-    var tables = $.fn.dataTable.tables();
-    return tables.length > 0 ? tables[0].id : 'NOT FOUND';
-""")
-print(f"DataTable ID found: {table_id}")
+# --- Step 3: Visit each major and extract all applicants ---
 
-# Use JavaScript to tell DataTables to show ALL records at once (-1 = all)
-driver.execute_script(f"$('#{table_id}').DataTable().page.len(-1).draw();")
-time.sleep(3)
+all_applicants = []
 
-# Debug: print the text of the last column of the first 3 rows
-rows = driver.find_elements(By.CSS_SELECTOR, f"#{table_id} tbody tr")
-print(f"Total rows visible: {len(rows)}")
-for row in rows[:3]:
-    cols = row.find_elements(By.TAG_NAME, "td")
-    if cols:
-        print(f"  Last col text: repr={repr(cols[-1].text)}")
+for major_name, major_url in major_data:
+    print(f"Scraping: {major_name} ...", end=" ", flush=True)
+    driver.get(major_url)
+    time.sleep(3)
 
-# Collect all passing applicants
-all_passed = []
-for row in rows:
-    cols = row.find_elements(By.TAG_NAME, "td")
-    if len(cols) >= 6 and "VACANTE" in cols[5].text:
-        all_passed.append({
-            "Código": cols[0].text.strip(),
-            "Apellidos y Nombres": cols[1].text.strip(),
-            "Escuela": cols[2].text.strip(),
-            "Puntaje": cols[3].text.strip(),
-            "Mérito E.P": cols[4].text.strip(),
-            "Observación": cols[5].text.strip(),
-        })
+    table_id = driver.execute_script("""
+        var tables = $.fn.dataTable.tables();
+        return tables.length > 0 ? tables[0].id : null;
+    """)
 
-print(f"Total applicants who passed in '{first_major_name}': {len(all_passed)}")
+    if not table_id:
+        print("No DataTable found, skipping.")
+        continue
 
-input("Press Enter to close the browser...")
+    driver.execute_script(f"$('#{table_id}').DataTable().page.len(-1).draw();")
+    time.sleep(3)
+
+    rows = driver.find_elements(By.CSS_SELECTOR, f"#{table_id} tbody tr")
+    count = 0
+    for row in rows:
+        cols = row.find_elements(By.TAG_NAME, "td")
+        if len(cols) >= 6:
+            all_applicants.append({
+                "Código": cols[0].text.strip(),
+                "Apellidos y Nombres": cols[1].text.strip(),
+                "Escuela": cols[2].text.strip(),
+                "Puntaje": cols[3].text.strip(),
+                "Mérito E.P": cols[4].text.strip(),
+                "Observación": cols[5].text.strip(),
+            })
+            count += 1
+    print(f"{count} applicants.")
+
 driver.quit()
 
+print(f"\nTotal applicants across all majors: {len(all_applicants)}")
 
+# --- Step 4: Export to Excel ---
 
+df = pd.DataFrame(all_applicants)
+df["Puntaje"] = pd.to_numeric(df["Puntaje"], errors="coerce")
+df["Mérito E.P"] = pd.to_numeric(df["Mérito E.P"], errors="coerce")
+
+with pd.ExcelWriter(OUTPUT_PATH, engine="openpyxl") as writer:
+    df.to_excel(writer, index=False, sheet_name="Resultados")
+
+    ws = writer.sheets["Resultados"]
+
+    # Column widths
+    col_widths = {"A": 12, "B": 40, "C": 40, "D": 12, "E": 12, "F": 35}
+    for col, width in col_widths.items():
+        ws.column_dimensions[col].width = width
+
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    header_fill = PatternFill(start_color="8B0000", end_color="8B0000", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    passed_fill = PatternFill(start_color="D4EDDA", end_color="D4EDDA", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+
+    # Style header row
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
+
+    # Style data rows
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        observacion = row[5].value or ""
+        for cell in row:
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical="center")
+            if "VACANTE" in observacion:
+                cell.fill = passed_fill
+
+    # Freeze header row
+    ws.freeze_panes = "A2"
+
+print(f"Excel saved to: {OUTPUT_PATH}")
