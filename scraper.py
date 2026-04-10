@@ -6,7 +6,7 @@ import time
 import os
 
 URL = "https://admision.unmsm.edu.pe/Website20262/A/A.html"
-OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "output", "resultados_admision.xlsx")
+OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "output", "resultados_sanmarcos.xlsx")
 
 options = webdriver.ChromeOptions()
 options.add_argument("--no-sandbox")
