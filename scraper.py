@@ -1,6 +1,7 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 import pandas as pd
 import time
 import os
@@ -86,9 +87,6 @@ with pd.ExcelWriter(OUTPUT_PATH, engine="openpyxl") as writer:
     col_widths = {"A": 12, "B": 40, "C": 40, "D": 12, "E": 12, "F": 35}
     for col, width in col_widths.items():
         ws.column_dimensions[col].width = width
-
-    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-    from openpyxl.utils import get_column_letter
 
     header_fill = PatternFill(start_color="8B0000", end_color="8B0000", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
